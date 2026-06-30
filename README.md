@@ -62,7 +62,11 @@ If you create a Web Service manually instead of Blueprint:
 ## MCP tools
 
 - `fonbet_search_events` - search events by team, league, or sport.
-- `fonbet_event_odds` - get markets and odds by `event_id`.
+- `fonbet_event_odds` - compatibility tool: first large page of event odds by `event_id`.
+- `get_event_odds` - paginated full event markets; use `offset`, `limit`, `query`, and `next_offset`.
+- `get_special_bets` - search current line for special/player/stat-style markets.
+- `get_same_game_parlay` - inspect one event for same-game parlay ideas.
+- `get_cross_match_specials` - inspect special-style markets across multiple events.
 - `fonbet_value_check` - simple value-bet check from your estimated probability.
 
 ## Current Fonbet endpoints
@@ -71,3 +75,4 @@ If you create a Web Service manually instead of Blueprint:
 - `GET /events/event?eventId=...&scopeMarket=1600&lang=ru`
 
 Odds are read from `customFactors[].factors[]`; `f` is the factor id and `v` is the decimal odds value.
+

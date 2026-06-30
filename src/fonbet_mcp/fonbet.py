@@ -86,6 +86,17 @@ def search_events(payload: dict[str, Any], query: str, limit: int = 20) -> list[
 
 
 def extract_odds(payload: dict[str, Any], event_id: int | None = None) -> dict[str, Any]:
+    return extract_markets(payload, event_id=event_id, offset=0, limit=500, query=None, include_raw=True)
+
+
+def extract_markets(
+    payload: dict[str, Any],
+    event_id: int | None = None,
+    offset: int = 0,
+    limit: int = 200,
+    query: str | None = None,
+    include_raw: bool = False,
+) -> dict[str, Any]:
     events = list(_iter_events(payload))
     if event_id is not None:
         event = next((item for item in events if item.get("id") == event_id), events[0] if events else {})
@@ -96,6 +107,16 @@ def extract_odds(payload: dict[str, Any], event_id: int | None = None) -> dict[s
     factor_blocks = _factor_blocks_by_event(payload)
     factors = factor_blocks.get(event_id, []) if event_id is not None else []
     sports_by_id = _sports_by_id(payload)
+    catalog = _factor_type_catalog(payload)
+    normalized = [_normalize_factor(factor, catalog, include_raw=include_raw) for factor in factors if isinstance(factor, dict)]
+
+    if query:
+        needle = query.casefold().strip()
+        normalized = [market for market in normalized if needle in _market_search_text(market).casefold()]
+
+    offset = max(0, offset)
+    limit = max(1, min(limit, 500))
+    page = normalized[offset : offset + limit]
 
     return {
         "event": {
@@ -106,10 +127,75 @@ def extract_odds(payload: dict[str, Any], event_id: int | None = None) -> dict[s
             "start_time": event.get("startTime"),
             "status": event.get("place"),
         },
-        "markets": [_normalize_factor(factor) for factor in factors if isinstance(factor, dict)],
-        "market_count": len(factors),
+        "markets": page,
+        "market_count": len(normalized),
+        "total_market_count": len(factors),
+        "offset": offset,
+        "limit": limit,
+        "next_offset": offset + limit if offset + limit < len(normalized) else None,
         "packet_version": payload.get("packetVersion"),
     }
+
+
+def extract_day_specials(
+    payload: dict[str, Any],
+    query: str = "",
+    limit: int = 100,
+    include_raw: bool = False,
+) -> dict[str, Any]:
+    sports_by_id = _sports_by_id(payload)
+    catalog = _factor_type_catalog(payload)
+    events_by_id = {
+        event.get("id"): event
+        for event in _iter_events(payload)
+        if isinstance(event.get("id"), int)
+    }
+    base_keywords = [
+        "спец",
+        "игрок",
+        "пенальти",
+        "карточ",
+        "углов",
+        "офсайд",
+        "удар",
+        "сэйв",
+        "гол",
+        "тайм",
+        "побед",
+        "фора",
+        "тотал",
+    ]
+    keywords = [item.casefold() for item in base_keywords]
+    query_text = query.casefold().strip()
+
+    results: list[dict[str, Any]] = []
+    max_items = max(1, min(limit, 500))
+    for event_id, factors in _factor_blocks_by_event(payload).items():
+        event = events_by_id.get(event_id, {})
+        for factor in factors:
+            if not isinstance(factor, dict):
+                continue
+            market = _normalize_factor(factor, catalog, include_raw=include_raw)
+            text = _market_search_text(market).casefold()
+            if query_text and query_text not in text:
+                continue
+            if not query_text and keywords and not any(keyword in text for keyword in keywords):
+                continue
+            results.append(
+                {
+                    "event": {
+                        "id": event_id,
+                        "name": _event_name(event),
+                        "sport": _sport_name(sports_by_id, event.get("sportId"), prefer_root=True),
+                        "league": _sport_name(sports_by_id, event.get("sportId"), prefer_root=False),
+                        "start_time": event.get("startTime"),
+                    },
+                    "market": market,
+                }
+            )
+            if len(results) >= max_items:
+                return {"specials": results, "count": len(results), "limit": max_items}
+    return {"specials": results, "count": len(results), "limit": max_items}
 
 
 def value_check(decimal_odds: float, estimated_probability: float) -> dict[str, float | bool]:
@@ -186,12 +272,47 @@ def _event_name(event: dict[str, Any]) -> str:
     return str(event.get("name") or event.get("caption") or event.get("id") or "unknown")
 
 
-def _normalize_factor(factor: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "factor_id": factor.get("f"),
+def _factor_type_catalog(payload: dict[str, Any]) -> dict[Any, dict[str, Any]]:
+    catalog: dict[Any, dict[str, Any]] = {}
+    for value in payload.values():
+        if not isinstance(value, list):
+            continue
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            factor_id = item.get("id") or item.get("f") or item.get("factorId")
+            name = item.get("name") or item.get("title") or item.get("caption")
+            if factor_id is not None and name:
+                catalog[factor_id] = item
+    return catalog
+
+
+def _normalize_factor(factor: dict[str, Any], catalog: dict[Any, dict[str, Any]], include_raw: bool = False) -> dict[str, Any]:
+    factor_id = factor.get("f")
+    meta = catalog.get(factor_id, {})
+    result: dict[str, Any] = {
+        "factor_id": factor_id,
+        "name": meta.get("name") or meta.get("title") or meta.get("caption"),
+        "group": factor.get("g") or meta.get("group") or meta.get("groupName"),
         "odds": factor.get("v"),
         "param": factor.get("p"),
         "param_text": factor.get("pt"),
-        "raw": factor,
+        "score": factor.get("s"),
+        "blocked": factor.get("b"),
     }
+    if include_raw:
+        result["raw"] = factor
+        if meta:
+            result["metadata"] = meta
+    return result
 
+
+def _market_search_text(market: dict[str, Any]) -> str:
+    values = [
+        market.get("name"),
+        market.get("group"),
+        market.get("param"),
+        market.get("param_text"),
+        market.get("factor_id"),
+    ]
+    return " ".join(str(value) for value in values if value is not None)
