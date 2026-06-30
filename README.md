@@ -13,10 +13,10 @@ pip install -e .
 Copy-Item .env.example .env
 ```
 
-## Local SSE run
+## Local ChatGPT run
 
 ```powershell
-$env:MCP_TRANSPORT="sse"
+$env:MCP_TRANSPORT="streamable-http"
 $env:MCP_HOST="127.0.0.1"
 $env:MCP_PORT="8000"
 python -m fonbet_mcp.server
@@ -25,7 +25,7 @@ python -m fonbet_mcp.server
 Local endpoint:
 
 ```text
-http://127.0.0.1:8000/sse
+http://127.0.0.1:8000/mcp
 ```
 
 ## Render Free deploy
@@ -40,7 +40,7 @@ This repo includes `render.yaml`.
 6. After deploy, use this ChatGPT connector URL:
 
 ```text
-https://YOUR-RENDER-SERVICE.onrender.com/sse
+https://YOUR-RENDER-SERVICE.onrender.com/mcp
 ```
 
 If you create a Web Service manually instead of Blueprint:
@@ -48,9 +48,9 @@ If you create a Web Service manually instead of Blueprint:
 - Build command: `pip install -e .`
 - Start command: `python -m fonbet_mcp.server`
 - Environment variables:
-  - `MCP_TRANSPORT=sse`
+  - `MCP_TRANSPORT=streamable-http`
   - `MCP_HOST=0.0.0.0`
-  - `MCP_SSE_PATH=/sse`
+  - `MCP_PATH=/mcp`
   - `MCP_MESSAGE_PATH=/messages/`
   - `MCP_DNS_REBINDING_PROTECTION=false`
   - `FONBET_BASE_URL=https://line-lb51.bk6bba-resources.com`
