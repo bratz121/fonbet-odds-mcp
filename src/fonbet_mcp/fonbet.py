@@ -86,7 +86,7 @@ def search_events(payload: dict[str, Any], query: str, limit: int = 20) -> list[
 
 
 def extract_odds(payload: dict[str, Any], event_id: int | None = None) -> dict[str, Any]:
-    return extract_markets(payload, event_id=event_id, offset=0, limit=500, query=None, include_raw=True)
+    return extract_markets(payload, event_id=event_id, offset=0, limit=120, query=None, include_raw=False)
 
 
 def extract_markets(
@@ -272,6 +272,33 @@ def _event_name(event: dict[str, Any]) -> str:
     return str(event.get("name") or event.get("caption") or event.get("id") or "unknown")
 
 
+_KNOWN_FACTOR_NAMES: dict[int, str] = {
+    921: "П1",
+    922: "Ничья",
+    923: "П2",
+    924: "1X",
+    925: "12",
+    1571: "X2",
+    927: "Фора 1",
+    928: "Фора 2",
+    930: "Тотал больше",
+    931: "Тотал меньше",
+    2820: "П1 с форой 0",
+    2821: "П2 с форой 0",
+    709: "Обе забьют - да",
+    710: "Обе забьют - нет",
+}
+
+
+def _known_factor_label(factor_id: Any, param_text: Any) -> str | None:
+    if not isinstance(factor_id, int):
+        return None
+    name = _KNOWN_FACTOR_NAMES.get(factor_id)
+    if not name:
+        return None
+    if param_text not in (None, "") and name in {"Фора 1", "Фора 2", "Тотал больше", "Тотал меньше"}:
+        return f"{name} ({param_text})"
+    return name
 def _factor_type_catalog(payload: dict[str, Any]) -> dict[Any, dict[str, Any]]:
     catalog: dict[Any, dict[str, Any]] = {}
     for value in payload.values():
@@ -290,9 +317,11 @@ def _factor_type_catalog(payload: dict[str, Any]) -> dict[Any, dict[str, Any]]:
 def _normalize_factor(factor: dict[str, Any], catalog: dict[Any, dict[str, Any]], include_raw: bool = False) -> dict[str, Any]:
     factor_id = factor.get("f")
     meta = catalog.get(factor_id, {})
+    known_label = _known_factor_label(factor_id, factor.get("pt"))
     result: dict[str, Any] = {
         "factor_id": factor_id,
-        "name": meta.get("name") or meta.get("title") or meta.get("caption"),
+        "label": known_label,
+        "name": meta.get("name") or meta.get("title") or meta.get("caption") or known_label,
         "group": factor.get("g") or meta.get("group") or meta.get("groupName"),
         "odds": factor.get("v"),
         "param": factor.get("p"),
@@ -309,6 +338,7 @@ def _normalize_factor(factor: dict[str, Any], catalog: dict[Any, dict[str, Any]]
 
 def _market_search_text(market: dict[str, Any]) -> str:
     values = [
+        market.get("label"),
         market.get("name"),
         market.get("group"),
         market.get("param"),
